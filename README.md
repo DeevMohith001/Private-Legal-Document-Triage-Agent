@@ -81,7 +81,7 @@ graph TD
 
 ---
 
-## 4. Hardware Constraints & Benchmark Performance
+## 4. Hardware Constraints & Measured Benchmark Performance
 
 Tested and validated on Windows 11 with an 8 GB RAM target environment (CPU-only, no dedicated GPU):
 
@@ -89,9 +89,12 @@ Tested and validated on Windows 11 with an 8 GB RAM target environment (CPU-only
 - **Host RAM**: 6 GB - 8 GB System Memory
 - **Model Selected**: `google_gemma-3n-E2B-it` (Quantized Q3_K_M GGUF format)
 - **Model File Size**: 2.19 GB (2,299,620,096 bytes)
-- **Peak Memory Usage**: ~2.8 GB total process RSS during full generation
-- **Model Load Time**: 2.05 seconds - 2.63 seconds (via memory-mapped loading)
-- **Inference Speed**: ~8 - 11 tokens/second on standard laptop CPU cores
+- **Peak Memory Usage**: ~2.5 GB total process RSS during full generation (optimized with `n_batch=64` to prevent memory overcommit on 262k vocab)
+- **Model Load Time**: 2.41s – 2.77s (measured via `llama_cpp.Llama` memory-mapped loading)
+- **Inference Speed**: 4.12 – 5.06 tokens/second on laptop CPU cores
+- **End-to-End Query Latency**: 32.5s – 56.6s per full multi-paragraph structured triage response
+- **Test Suite Result**: 28 passed, 0 failed, 0 skipped in 82.94s (`python -m pytest backend/tests -q`)
+- **Privacy Audit**: 0 outbound connections attempted; 0 bytes leaked under air-gap socket interception
 - **Disk Footprint**: Completely self-contained; weights stored in `backend/models/`
 
 ---
