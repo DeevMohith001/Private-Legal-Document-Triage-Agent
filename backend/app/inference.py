@@ -57,11 +57,13 @@ def get_llm() -> Llama:
         logger.info(f"[LLM INIT] Loading local Gemma 3n model from: {model_path}")
         t0 = time.perf_counter()
         # Conservative context window and thread count for 8 GB CPU laptops
+        # With Gemma 3n 262k vocab, n_batch=64 keeps logits buffer to 64 MiB (vs 512 MiB with default)
         _llm_instance = Llama(
             model_path=model_path,
-            n_ctx=2048,
+            n_ctx=1536,
             n_threads=4,
-            n_batch=512,
+            n_batch=64,
+            logits_all=False,
             verbose=False,
         )
         _model_load_time_sec = time.perf_counter() - t0
@@ -129,24 +131,37 @@ def parse_model_structured_output(raw_text: str) -> Tuple[str, List[str], List[s
     potential_concerns: List[str] = []
     uncertainties: List[str] = []
 
-    # Regex extraction of list items under standard headings
-    sections = re.split(r"\n(?=#{1,4}\s+|\*{2}[A-Za-z\s]+:?\*{2})", raw_text)
+    current_section = None
+    for line in raw_text.splitlines():
+        trimmed = line.strip()
+        if not trimmed:
+            continue
 
-    for sec in sections:
-        sec_lower = sec.lower()
-        # Find bullet items (- or * or numbered 1.)
-        bullet_items = [
-            re.sub(r"^[\s*\-0-9.)]+", "", line).strip()
-            for line in sec.split("\n")
-            if re.match(r"^\s*[-*•]|\s*\d+[.)]", line) and len(line.strip()) > 8
-        ]
+        clean_heading = re.sub(r"^[#*\s]+|[#*\s:]+$", "", trimmed).lower()
+        if "explicit" in clean_heading or "what the document" in clean_heading:
+            current_section = "explicit"
+            continue
+        elif "concern" in clean_heading or "risk" in clean_heading or "interpretation" in clean_heading:
+            current_section = "concerns"
+            continue
+        elif "missing" in clean_heading or "ambiguity" in clean_heading or "uncertain" in clean_heading:
+            current_section = "uncertainties"
+            continue
+        elif "synthesis" in clean_heading or "recommendation" in clean_heading or "triage response" in clean_heading:
+            current_section = "other"
+            continue
 
-        if "explicit" in sec_lower or "what the document" in sec_lower:
-            explicit_terms.extend(bullet_items[:4])
-        elif "concern" in sec_lower or "risk" in sec_lower or "interpretation" in sec_lower:
-            potential_concerns.extend(bullet_items[:4])
-        elif "missing" in sec_lower or "ambiguity" in sec_lower or "uncertain" in sec_lower:
-            uncertainties.extend(bullet_items[:4])
+        # Detect bullet list item
+        if re.match(r"^(\s*[-*•]|\s*\d+[.)])\s+", trimmed):
+            bullet_text = re.sub(r"^(\s*[-*•]|\s*\d+[.)])\s+", "", trimmed).strip()
+            bullet_text = re.sub(r"^\*+|\*+$", "", bullet_text).strip()
+            if len(bullet_text) > 8:
+                if current_section == "explicit" and len(explicit_terms) < 4:
+                    explicit_terms.append(bullet_text)
+                elif current_section == "concerns" and len(potential_concerns) < 4:
+                    potential_concerns.append(bullet_text)
+                elif current_section == "uncertainties" and len(uncertainties) < 4:
+                    uncertainties.append(bullet_text)
 
     return raw_text.strip(), explicit_terms, potential_concerns, uncertainties
 
@@ -205,7 +220,7 @@ def run_local_legal_triage(
         try:
             output = llm(
                 prompt,
-                max_tokens=600,
+                max_tokens=350,
                 temperature=0.2,  # Low temperature for deterministic, factual grounding
                 top_p=0.9,
                 stop=["<end_of_turn>", "<start_of_turn>"],

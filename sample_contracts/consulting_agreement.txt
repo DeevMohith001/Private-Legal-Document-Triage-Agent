@@ -1,0 +1,25 @@
+EMPLOYMENT CONSULTING AGREEMENT
+
+This Agreement is made on October 15, 2026, between AlphaTech Solutions Inc. ('Company')
+and Sarah Connor ('Consultant').
+
+1. ENGAGEMENT AND DUTIES
+Consultant shall provide software architecture and security audit services.
+Consultant shall devote approximately 30 hours per week to the Company's projects.
+
+2. COMPENSATION AND EXPENSES
+Company shall pay Consultant a consulting fee of .00 per hour.
+Consultant shall submit bi-weekly invoices payable net thirty (30) days.
+Unapproved expenses exceeding .00 shall not be reimbursed by the Company.
+
+3. TERMINATION AND NOTICE
+Either party may terminate this Agreement for convenience upon fourteen (14) days advance
+written notice to the other party.
+In the event of a material breach, the non-breaching party may terminate immediately.
+
+4. NON-COMPETE AND AMBIGUOUS RESTRICTIONS
+Consultant agrees not to work with any business in the technology sector for a reasonable
+duration in the surrounding market area following termination.
+
+5. GOVERNING JURISDICTION
+This Agreement is subject to the exclusive jurisdiction of the state courts of Delaware.

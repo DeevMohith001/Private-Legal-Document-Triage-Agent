@@ -87,10 +87,8 @@ def verify_single_citation(
     if target_page and target_page.text:
         verbatim = extract_verbatim_slice(clean_quote, target_page.text)
         if verbatim:
-            # Bound quote length for crisp UI card display
+            # Bound quote length for crisp UI card display while preserving exact verbatim source text
             display_quote = verbatim[:220].strip()
-            if len(verbatim) > 220:
-                display_quote += "..."
             return Citation(page=citation.page, quote=display_quote)
 
     # 2. Check all other pages to correct misattributed page numbers
@@ -146,9 +144,17 @@ def ground_citations_from_retrieval(
             if not chunk_page:
                 continue
 
-            quote_candidate = chunk.text[:220].strip()
-            if len(chunk.text) > 220:
-                quote_candidate += "..."
+            clean_text = chunk.text.strip()
+            # If longer than 220 chars, slice at clean sentence/space boundary
+            if len(clean_text) > 220:
+                cut_idx = clean_text[:220].rfind(". ")
+                if cut_idx != -1 and cut_idx > 60:
+                    quote_candidate = clean_text[:cut_idx + 1].strip()
+                else:
+                    cut_space = clean_text[:220].rfind(" ")
+                    quote_candidate = clean_text[:cut_space].strip() if cut_space > 60 else clean_text[:220].strip()
+            else:
+                quote_candidate = clean_text
 
             q_key = normalize_text_for_matching(quote_candidate[:50])
             if q_key not in seen_quotes:
