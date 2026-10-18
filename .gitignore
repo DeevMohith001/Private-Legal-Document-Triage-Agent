@@ -245,3 +245,8 @@ dist-ssr
 *.sw?
 
 ZeroDay_OSS_Hacktoberfest_2026_Participant_Guide.pdf
+
+# Local Model Weights & Cache
+backend/models/*.gguf
+backend/models/.cache/
+backend/models/**/*.incomplete

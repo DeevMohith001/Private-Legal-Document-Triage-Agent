@@ -1,5 +1,9 @@
+"""
+Local document ingestion pipeline with PyMuPDF and RapidOCR fallback.
+Privacy-First: Zero document content is emitted to console or logs.
+"""
+
 import sys
-import time
 import uuid
 import logging
 from typing import List, Optional
@@ -7,153 +11,179 @@ import pymupdf as fitz
 from rapidocr_onnxruntime import RapidOCR
 from .schemas import PageData, IngestResponse
 
-# Ensure stdout encodes safely on Windows terminals
-if hasattr(sys.stdout, "reconfigure"):
-    try:
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    except Exception:
-        pass
-
-def safe_print(text: str = ""):
-    """Safe print ensuring no encoding exceptions on Windows consoles."""
-    try:
-        print(text)
-    except Exception:
-        enc = getattr(sys.stdout, "encoding", "utf-8") or "utf-8"
-        print(text.encode(enc, errors="replace").decode(enc, errors="replace"))
-
+# Logger setup with no sensitive data leaking
 logger = logging.getLogger("lexisedge.parser")
-logging.basicConfig(level=logging.INFO, format="%(message)s")
 
 _ocr_engine: Optional[RapidOCR] = None
 
+MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024  # 25 MB limit
+MAX_PAGE_COUNT = 100                    # 100 pages max to prevent resource exhaustion
+MIN_CHAR_COUNT_FOR_DIGITAL = 20        # Threshold under which OCR fallback triggers
+TXT_CHUNK_LINE_COUNT = 50              # Chunks text files into 50-line pages (matches frontend Viewer.tsx)
+
 def get_ocr_engine() -> RapidOCR:
+    """Lazy initialization of local RapidOCR ONNX runtime."""
     global _ocr_engine
     if _ocr_engine is None:
-        logger.info("[INIT] Initializing RapidOCR ONNX runtime...")
+        logger.info("[OCR] Initializing RapidOCR ONNX engine locally...")
         _ocr_engine = RapidOCR()
     return _ocr_engine
 
 def parse_document(file_bytes: bytes, filename: str) -> IngestResponse:
-    doc_id = f"doc_{uuid.uuid4().hex[:12]}"
-    file_size_kb = len(file_bytes) / 1024
-    pages: List[PageData] = []
-    filename_lower = filename.lower()
+    """
+    Parses a PDF or plain text document on-device.
+    Validates file integrity, page counts, and encryption.
+    Performs OCR fallback for scanned or image-based pages.
+    Guarantees no document text is logged or leaked.
+    """
+    if not file_bytes or len(file_bytes) == 0:
+        raise ValueError("Uploaded file is empty.")
 
-    print("\n" + "=" * 80)
-    print(f"[*] INGESTING DOCUMENT: {filename}")
-    print(f"[*] Size: {file_size_kb:.1f} KB | Document ID: {doc_id}")
-    print("=" * 80)
+    if len(file_bytes) > MAX_FILE_SIZE_BYTES:
+        raise ValueError(
+            f"File size ({len(file_bytes) / (1024*1024):.1f} MB) exceeds maximum allowed limit (25 MB)."
+        )
+
+    doc_id = f"doc_{uuid.uuid4().hex[:12]}"
+    filename_lower = filename.lower()
+    pages: List[PageData] = []
 
     if filename_lower.endswith(".txt"):
         try:
-            text = file_bytes.decode("utf-8")
+            full_text = file_bytes.decode("utf-8")
         except UnicodeDecodeError:
-            text = file_bytes.decode("latin-1", errors="replace")
+            full_text = file_bytes.decode("latin-1", errors="replace")
 
-        char_count = len(text)
-        word_count = len(text.split())
-        print(f"[Page 1/1] Plain text document ({char_count} characters, {word_count} words)")
+        stripped_full = full_text.strip()
+        if not stripped_full:
+            raise ValueError("Plain text document contains no extractable content.")
 
-        pages.append(
-            PageData(
-                page_number=1,
-                text=text.strip(),
-                ocr_applied=False,
-                char_count=char_count,
+        # Chunk text file into 50-line pages to match frontend Viewer.tsx pagination
+        raw_lines = full_text.splitlines()
+        if not raw_lines:
+            raw_lines = [full_text]
+
+        chunk_size = TXT_CHUNK_LINE_COUNT
+        page_chunks = [
+            "\n".join(raw_lines[i : i + chunk_size])
+            for i in range(0, len(raw_lines), chunk_size)
+        ]
+        if not page_chunks:
+            page_chunks = [full_text]
+
+        for idx, chunk_text in enumerate(page_chunks):
+            p_num = idx + 1
+            pages.append(
+                PageData(
+                    page_number=p_num,
+                    text=chunk_text,
+                    ocr_applied=False,
+                    char_count=len(chunk_text),
+                )
             )
-        )
-    else:
-        # PDF Document Parsing via PyMuPDF
-        pdf_doc = fitz.open(stream=file_bytes, filetype="pdf")
-        total_pages = len(pdf_doc)
-        print(f"[*] Total Pages Detected: {total_pages}\n")
 
-        ocr_engine = None
+    elif filename_lower.endswith(".pdf"):
+        try:
+            pdf_doc = fitz.open(stream=file_bytes, filetype="pdf")
+        except Exception as e:
+            raise ValueError(f"Malformed or corrupt PDF document: {e}")
 
-        for page_idx in range(total_pages):
-            page_num = page_idx + 1
-            page = pdf_doc.load_page(page_idx)
+        try:
+            if pdf_doc.is_encrypted or pdf_doc.needs_pass:
+                raise ValueError("Password-protected PDF files cannot be processed without authorization.")
 
-            # 1. Native digital text extraction
-            native_text = page.get_text().strip()
-            char_count = len(native_text)
+            total_pdf_pages = len(pdf_doc)
+            if total_pdf_pages == 0:
+                raise ValueError("PDF document contains no pages.")
 
-            if char_count >= 20:
-                word_count = len(native_text.split())
-                print(f"[Page {page_num}/{total_pages}] Digital text found ({char_count} characters, {word_count} words)")
-                pages.append(
-                    PageData(
-                        page_number=page_num,
-                        text=native_text,
-                        ocr_applied=False,
-                        char_count=char_count,
-                    )
+            if total_pdf_pages > MAX_PAGE_COUNT:
+                raise ValueError(
+                    f"PDF page count ({total_pdf_pages}) exceeds maximum allowed limit ({MAX_PAGE_COUNT} pages)."
                 )
-            else:
-                # 2. Negligible text -> RapidOCR Fallback
-                if ocr_engine is None:
-                    ocr_engine = get_ocr_engine()
 
-                print("=" * 80)
-                print(f"[OCR TRIGGERED] Page {page_num}/{total_pages}")
-                print("-> Processing raster image with RapidOCR...")
+            ocr_engine = None
 
-                start_time = time.perf_counter()
-                pix = page.get_pixmap(dpi=150)
-                img_bytes = pix.tobytes("png")
+            for page_idx in range(total_pdf_pages):
+                page_num = page_idx + 1
+                try:
+                    page = pdf_doc.load_page(page_idx)
+                except Exception as e:
+                    logger.warning(f"[PARSE] Error loading PDF page {page_num}: {e}")
+                    pages.append(
+                        PageData(
+                            page_number=page_num,
+                            text="",
+                            ocr_applied=False,
+                            char_count=0,
+                        )
+                    )
+                    continue
 
-                ocr_results, _ = ocr_engine(img_bytes)
-                elapsed = time.perf_counter() - start_time
+                # 1. Native digital text extraction
+                native_text = page.get_text().strip()
+                char_count = len(native_text)
 
-                if ocr_results:
-                    extracted_lines = [item[1] for item in ocr_results if len(item) > 1 and item[1]]
-                    ocr_text = "\n".join(extracted_lines).strip()
-                    block_count = len(ocr_results)
+                if char_count >= MIN_CHAR_COUNT_FOR_DIGITAL:
+                    pages.append(
+                        PageData(
+                            page_number=page_num,
+                            text=native_text,
+                            ocr_applied=False,
+                            char_count=char_count,
+                        )
+                    )
                 else:
-                    ocr_text = ""
-                    block_count = 0
+                    # 2. Negligible native text -> RapidOCR Fallback
+                    if ocr_engine is None:
+                        ocr_engine = get_ocr_engine()
 
-                sample_text = (ocr_text[:120] + "...") if len(ocr_text) > 120 else (ocr_text or "[No text detected]")
-                print(f"-> OCR Completed in {elapsed:.2f}s | Detected {block_count} text blocks")
-                print(f'-> Sample extracted: "{sample_text}"')
-                print("=" * 80)
+                    try:
+                        pix = page.get_pixmap(dpi=150)
+                        img_bytes = pix.tobytes("png")
+                        ocr_results, _ = ocr_engine(img_bytes)
 
-                pages.append(
-                    PageData(
-                        page_number=page_num,
-                        text=ocr_text,
-                        ocr_applied=True,
-                        char_count=len(ocr_text),
+                        if ocr_results:
+                            extracted_lines = [
+                                item[1] for item in ocr_results if len(item) > 1 and item[1]
+                            ]
+                            ocr_text = "\n".join(extracted_lines).strip()
+                        else:
+                            ocr_text = ""
+                    except Exception as ocr_err:
+                        logger.warning(f"[OCR] OCR processing error on page {page_num}: {ocr_err}")
+                        ocr_text = ""
+
+                    pages.append(
+                        PageData(
+                            page_number=page_num,
+                            text=ocr_text,
+                            ocr_applied=True,
+                            char_count=len(ocr_text),
+                        )
                     )
-                )
+        finally:
+            pdf_doc.close()
 
-        pdf_doc.close()
+    else:
+        raise ValueError("Unsupported file format. Only .pdf and .txt documents are supported.")
 
-    total_pages = len(pages)
+    # Validate that document has at least some extractable characters
+    total_chars = sum(p.char_count for p in pages)
+    if total_chars == 0:
+        raise ValueError(
+            "Document parsing produced no extractable text. Document appears empty or unreadable."
+        )
+
+    # Privacy-conscious logging: Log only structural metadata, NEVER document text
     ocr_count = sum(1 for p in pages if p.ocr_applied)
-    digital_count = total_pages - ocr_count
-
-    # Ready-to-Feed LLM Context Payload Output
-    safe_print("\n" + "=" * 80)
-    safe_print(">>> LLM CONTEXT PAYLOAD READY (Ready to feed to Local Gemma)")
-    safe_print("=" * 80)
-    safe_print("<<<DOCUMENT_METADATA>>>")
-    safe_print(f"Document ID : {doc_id}")
-    safe_print(f"Filename    : {filename}")
-    safe_print(f"Total Pages : {total_pages}")
-    safe_print(f"Parse Mode  : {digital_count} Native / {ocr_count} RapidOCR\n")
-    safe_print("<<<EXTRACTED_CONTENT_BLOCKS>>>")
-    for p in pages:
-        safe_print(f"--- [PAGE {p.page_number}] ---")
-        safe_print(p.text if p.text else "[EMPTY PAGE]")
-        safe_print()
-    safe_print("<<<END_CONTEXT_PAYLOAD>>>")
-    safe_print("=" * 80 + "\n")
+    digital_count = len(pages) - ocr_count
+    logger.info(
+        f"[INGEST COMPLETE] ID: {doc_id} | Pages: {len(pages)} ({digital_count} digital, {ocr_count} OCR) | Characters: {total_chars:,}"
+    )
 
     return IngestResponse(
         document_id=doc_id,
         filename=filename,
-        total_pages=total_pages,
+        total_pages=len(pages),
         pages=pages,
     )
