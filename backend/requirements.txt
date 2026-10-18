@@ -1,10 +1,21 @@
-fastapi>=0.110.0
-uvicorn>=0.28.0
+# LexisEdge Backend Dependencies
+# Tested with Python 3.12 (recommended) and Python 3.14 on Windows 64-bit
+
+fastapi>=0.110.0,<0.145.0
+uvicorn>=0.28.0,<0.55.0
 python-multipart>=0.0.9
-pydantic>=2.6.0
+pydantic>=2.6.0,<3.0.0
 PyMuPDF>=1.23.0
-rapidocr-onnxruntime>=1.2.0
 pillow>=10.2.0
 llama-cpp-python>=0.3.0
 huggingface-hub>=0.20.0
 pytest>=8.0.0
+
+# OCR Fallback Engine
+# Note: On Python 3.12, rapidocr-onnxruntime installs directly.
+# On Python 3.14+, install onnxruntime + opencv-python + shapely + pyclipper + rapidocr-onnxruntime --no-deps.
+rapidocr-onnxruntime>=1.2.0
+onnxruntime>=1.17.0
+opencv-python>=4.8.0
+shapely>=2.0.0
+pyclipper>=1.3.0

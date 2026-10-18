@@ -1,0 +1,15 @@
+# Pinned dependencies tested on Windows 64-bit with CPU-only Gemma 3n inference
+fastapi==0.135.3
+uvicorn==0.43.0
+python-multipart==0.0.22
+pydantic==2.12.5
+PyMuPDF==1.28.2
+rapidocr-onnxruntime==1.2.3
+onnxruntime==1.31.0
+opencv-python==5.0.0.93
+shapely==2.2.0
+pyclipper==1.4.0
+pillow==12.1.1
+llama-cpp-python==0.3.19
+huggingface-hub==1.8.0
+pytest==9.1.1

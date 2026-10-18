@@ -44,6 +44,11 @@ def test_airgapped_end_to_end_pipeline(airgap_network_shield, sample_lease_pdf):
     """
     DOCUMENTS.clear()
     HISTORY.clear()
+    
+    from backend.app.inference import is_model_available
+    if not is_model_available():
+        pytest.skip("Local Gemma 3n model weights not found. Run 'python download_model.py' first.")
+
     client = TestClient(app)
 
     # 1. Ingest Document under air-gap

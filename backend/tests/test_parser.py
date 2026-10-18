@@ -48,6 +48,9 @@ def test_encrypted_pdf_handling(encrypted_pdf):
 
 def test_ocr_fallback_handling(scanned_ocr_pdf):
     """Test 5: Image-based scanned PDF triggers local RapidOCR fallback."""
+    from backend.app.parser import HAS_RAPID_OCR
+    if not HAS_RAPID_OCR:
+        pytest.skip("RapidOCR is not installed in the current environment")
     res = parse_document(scanned_ocr_pdf, "scanned_notice.pdf")
     assert res.total_pages == 1
     # Page must have OCR flag set to True

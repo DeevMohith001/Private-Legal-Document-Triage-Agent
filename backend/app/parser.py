@@ -6,24 +6,36 @@ Privacy-First: Zero document content is emitted to console or logs.
 import sys
 import uuid
 import logging
-from typing import List, Optional
+from typing import List, Optional, Any
 import pymupdf as fitz
-from rapidocr_onnxruntime import RapidOCR
 from .schemas import PageData, IngestResponse
+
+# Graceful RapidOCR import to ensure module can be imported even if OCR dependencies are pending
+try:
+    from rapidocr_onnxruntime import RapidOCR
+    HAS_RAPID_OCR = True
+except ImportError:
+    RapidOCR = None  # type: ignore
+    HAS_RAPID_OCR = False
 
 # Logger setup with no sensitive data leaking
 logger = logging.getLogger("lexisedge.parser")
 
-_ocr_engine: Optional[RapidOCR] = None
+_ocr_engine: Optional[Any] = None
 
 MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024  # 25 MB limit
 MAX_PAGE_COUNT = 100                    # 100 pages max to prevent resource exhaustion
 MIN_CHAR_COUNT_FOR_DIGITAL = 20        # Threshold under which OCR fallback triggers
 TXT_CHUNK_LINE_COUNT = 50              # Chunks text files into 50-line pages (matches frontend Viewer.tsx)
 
-def get_ocr_engine() -> RapidOCR:
+def get_ocr_engine() -> Any:
     """Lazy initialization of local RapidOCR ONNX runtime."""
     global _ocr_engine
+    if not HAS_RAPID_OCR:
+        raise RuntimeError(
+            "RapidOCR is not installed in the active Python environment. "
+            "To enable OCR for scanned documents, install rapidocr-onnxruntime."
+        )
     if _ocr_engine is None:
         logger.info("[OCR] Initializing RapidOCR ONNX engine locally...")
         _ocr_engine = RapidOCR()
