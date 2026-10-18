@@ -1,0 +1,48 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg-base: #0c0e12;
+    --surface: #11141a;
+    --surface-hover: #161a22;
+    --surface-active: #1c212c;
+    --elevated: #161a22;
+    --border: #1e232d;
+    --border-subtle: #171b23;
+  }
+
+  * {
+    border-color: #1e232d;
+  }
+
+  body {
+    background-color: #0c0e12;
+    color: #e1e4ea;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    user-select: none;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .selectable-text {
+    user-select: text;
+  }
+}
+
+/* Minimal desktop utility scrollbars */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #252b37;
+  border-radius: 2px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #373f50;
+}
